@@ -51,6 +51,9 @@
     <p><router-link :to="{ name: 'accordionStaysPage' }">
       accordionStaysPage
     </router-link></p>
+    <p><router-link :to="{ name: 'CarGamePage' }">
+      CarGame
+    </router-link></p>
   </div>
 </template>
 <script>
