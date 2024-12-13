@@ -1,11 +1,5 @@
 <template>
-    <div
-        class="car-game"
-        ref="carGame"
-        tabindex="0"
-        @keyup="handleKeyup"
-        @keydown="handleKeydown"
-    >
+    <div class="car-game" ref="carGame" tabindex="0" @keyup="handleKeyup" @keydown="handleKeydown">
         <div class="car-game__car" ref="car" :style="computeCarStyle">
             <div class="car-game__car__wheel" :style="computeWheelsStyle"></div>
             <div class="car-game__car__wheel"></div>
@@ -16,31 +10,57 @@
             <div class="car-game__car__helmet"></div>
         </div>
 
-        <div class="car-game__wall"></div>
+        <div class="car-game__wall" v-for="(obstacle, index) in obstacles" :key="index"
+            :style="computeObstacleStyle(index)"></div>
     </div>
 </template>
 
 <script>
+const obstacles = [
+    {
+        x: 250,
+        y: 250,
+        size: 50,
+    },
+    {
+        x: 500,
+        y: 500,
+        size: 50,
+    },
+];
 export default {
     name: 'CarGame',
     data() {
         return {
-            x: 100,
-            y: 100,
-            angle: 0,
+            fieldX: 0,
+            fieldY: 0,
+            fieldSize: 0,
+            obstacles: obstacles,
+            x: 0,
+            y: 0,
+            angle: 90,
             velocityX: 0,
             velocityY: 0,
+            speedY: 0,
             pressedKeys: new Set(),
             interval: null,
         };
     },
     mounted() {
-        const forwardSpeed = 5;
-        const rotationSpeed = 2;
+        const acceleration = 0.26;
+        const rotationSpeed = 2.3;
+        const frictionCoefficient = 0.21;
+
+        const fieldStats = this.$refs.carGame.getBoundingClientRect();
+
+        this.fieldX = fieldStats.left;
+        this.fieldY = fieldStats.top;
+        this.fieldSize = fieldStats.width;
+
+        this.x = this.fieldX + 100;
+        this.y = this.fieldY + 100;
 
         this.interval = setInterval(() => {
-            if (this.pressedKeys.size === 0) return;
-
             if (
                 (this.pressedKeys.has('a') && this.pressedKeys.has('w')) ||
                 (this.pressedKeys.has('d') && this.pressedKeys.has('s'))
@@ -53,38 +73,65 @@ export default {
                 this.angle += rotationSpeed;
             }
 
-            this.velocityX = 0;
-            this.velocityY = 0;
-
-            if (this.pressedKeys.has('s')) {
-                this.velocityX =
-                    -forwardSpeed * Math.sin((Math.PI * this.angle) / 180);
-                this.velocityY =
-                    forwardSpeed * Math.cos((Math.PI * this.angle) / 180);
-            }
+            // меняется не скорость, а вектор ускорения
+            let accelerationX = 0,
+                accelerationY = 0;
 
             if (this.pressedKeys.has('w')) {
-                this.velocityX =
-                    forwardSpeed * Math.sin((Math.PI * this.angle) / 180);
-                this.velocityY =
-                    -forwardSpeed * Math.cos((Math.PI * this.angle) / 180);
+                accelerationX = acceleration * Math.sin((Math.PI * this.angle) / 180);
+                accelerationY = -acceleration * Math.cos((Math.PI * this.angle) / 180);
+            } else if (this.pressedKeys.has('s')) {
+                accelerationX = -acceleration * Math.sin((Math.PI * this.angle) / 180);
+                accelerationY = acceleration * Math.cos((Math.PI * this.angle) / 180);
             }
+
+            // сила торможения стремится снизить скорость в 0
+            let speedAngle = (Math.sign(this.velocityY) * Math.PI) / 2;
+
+            if (Math.abs(this.velocityX) > 1e-5) {
+                speedAngle = Math.atan(-this.velocityY / this.velocityX);
+            }
+
+            const frictionAngle = Math.PI - speedAngle;
+
+            const frictionEffectX =
+                frictionCoefficient * Math.cos(frictionAngle);
+            const frictionEffectY =
+                frictionCoefficient * Math.sin(frictionAngle);
+
+            this.velocityX =
+                Math.sign(this.velocityX) *
+                Math.max(
+                    0,
+                    Math.abs(this.velocityX) - Math.abs(frictionEffectX)
+                );
+            this.velocityY =
+                Math.sign(this.velocityY) *
+                Math.max(
+                    0,
+                    Math.abs(this.velocityY) - Math.abs(frictionEffectY)
+                );
+
+            this.velocityX += accelerationX;
+            this.velocityY += accelerationY;
 
             this.x += this.velocityX;
             this.y += this.velocityY;
 
-            const rectStats = this.$refs.car.getBoundingClientRect();
+            const carStats = this.$refs.car.getBoundingClientRect();
 
             if (
-                rectStats.top < 0 ||
-                rectStats.top + rectStats.height > 800 ||
-                rectStats.left < 0 ||
-                rectStats.left + rectStats.width > 800 ||
+                carStats.top < this.fieldY ||
+                carStats.top + carStats.height >
+                this.fieldY + this.fieldSize ||
+                carStats.left < this.fieldX ||
+                carStats.left + carStats.width >
+                this.fieldX + this.fieldSize ||
                 this.checkCollision()
             ) {
-                this.x = 100;
-                this.y = 100;
-                this.angle = 0;
+                this.x = this.fieldX + 100;
+                this.y = this.fieldY + 100;
+                this.angle = 180;
                 this.velocityX = 0;
                 this.velocityY = 0;
             }
@@ -121,6 +168,15 @@ export default {
         },
     },
     methods: {
+        computeObstacleStyle(index) {
+            const thisObstacle = this.obstacles[index];
+            return {
+                width: thisObstacle.size + 'px',
+                height: thisObstacle.size + 'px',
+                top: thisObstacle.y + 'px',
+                left: thisObstacle.x + 'px',
+            };
+        },
         checkCollision() {
             const cordsOfCar = this.calcCarCordsByAngle(
                 (this.angle * Math.PI) / 180
@@ -129,13 +185,15 @@ export default {
             for (const key in cordsOfCar) {
                 const elem = cordsOfCar[key];
 
-                if (
-                    350 <= this.x + 25 + elem[0] &&
-                    this.x + 25 + elem[0] <= 450 &&
-                    350 <= this.y + 50 + elem[1] &&
-                    this.y + 50 + elem[1] <= 450
-                ) {
-                    return true;
+                for (const obstacle of this.obstacles) {
+                    if (
+                        obstacle.x <= this.x + 25 + elem[0] &&
+                        this.x + 25 + elem[0] <= obstacle.x + obstacle.size &&
+                        obstacle.y <= this.y + 50 + elem[1] &&
+                        this.y + 50 + elem[1] <= obstacle.y + obstacle.size
+                    ) {
+                        return true;
+                    }
                 }
             }
 
@@ -153,6 +211,19 @@ export default {
                     angle,
                     [25, 50]
                 ),
+                leftMiddle: this.multiplyVectorToRotationMatrix(
+                    angle,
+                    [-25, 0]
+                ),
+                rightMiddle: this.multiplyVectorToRotationMatrix(
+                    angle,
+                    [25, 0]
+                ),
+                topMiddle: this.multiplyVectorToRotationMatrix(angle, [0, -50]),
+                bottomMiddle: this.multiplyVectorToRotationMatrix(
+                    angle,
+                    [0, 50]
+                ),
             };
         },
         multiplyVectorToRotationMatrix(angle, vector) {
@@ -162,11 +233,29 @@ export default {
             ];
         },
         handleKeydown(e) {
-            this.pressedKeys = new Set(this.pressedKeys.add(e.key));
+            if (['w', 'a', 's', 'd', 'ц', 'ф', 'ы', 'в'].includes(e.key)) {
+                this.pressedKeys = new Set(
+                    this.pressedKeys.add(this.convertKey(e.key))
+                );
+            }
         },
         handleKeyup(e) {
-            this.pressedKeys.delete(e.key);
+            this.pressedKeys.delete(this.convertKey(e.key));
             this.pressedKeys = new Set(this.pressedKeys);
+        },
+        convertKey(key) {
+            switch (key) {
+                case 'ц':
+                    return 'w';
+                case 'ф':
+                    return 'a';
+                case 'ы':
+                    return 's';
+                case 'в':
+                    return 'd';
+                default:
+                    return key;
+            }
         },
     },
 };
@@ -174,6 +263,7 @@ export default {
 
 <style scoped lang="less">
 .car-game {
+    position: relative;
     width: 800px;
     height: 800px;
     background-color: rgb(42, 41, 34);
@@ -244,11 +334,7 @@ export default {
 
     &__wall {
         position: absolute;
-        top: 350px;
-        left: 350px;
         background-color: black;
-        width: 100px;
-        height: 100px;
     }
 }
 </style>
